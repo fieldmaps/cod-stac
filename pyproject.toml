@@ -1,0 +1,48 @@
+[project]
+name = "cod-stac"
+version = "0.1.0"
+description = "STAC for COD-AB"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "geopandas",
+    "httpx",
+    "kaleido==0.2.1",
+    "pandas",
+    "plotly",
+    "pyarrow",
+    "pycountry",
+    "pystac",
+    # "stac-fastapi-api",
+    # "stac-fastapi-extensions",
+    # "stac-fastapi-pgstac",
+    # "stac-fastapi-types",
+    "stactools[validate]",
+    "tqdm",
+]
+
+[dependency-groups]
+dev = ["ruff", "taskipy"]
+
+[tool.taskipy.tasks]
+app = "python -m app"
+export = "uv sync -q && uv export -q -o requirements.txt --no-dev --no-hashes"
+pipeline = "python -m app"
+ruff = "ruff format && ruff check && ruff format"
+make_stac = "rm -rf stac-remote && stac copy --catalog-type ABSOLUTE_PUBLISHED --publish-location ${CATALOG_URL} stac/catalog.json stac-remote"
+upload_assets = "rclone sync --exclude='.*' --progress --s3-no-check-bucket --s3-chunk-size=100M --transfers=10 outputs r2://fieldmaps-data-cod/assets"
+upload_stac = "rclone sync --exclude='.*' --progress --s3-no-check-bucket --s3-chunk-size=100M --transfers=10 stac-remote r2://fieldmaps-data-cod/stac"
+
+[tool.ruff]
+fix = true
+target-version = "py313"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D100", "D104", "INP", "S603", "S607"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

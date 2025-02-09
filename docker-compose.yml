@@ -1,0 +1,8 @@
+services:
+  cod-stac:
+    build: .
+    env_file: .env
+    volumes:
+      - ./app:/usr/src/app/app
+      - ./inputs:/usr/src/app/inputs
+      - ./outputs:/usr/src/app/outputs
