@@ -2,14 +2,15 @@ from re import match
 
 from geopandas import GeoDataFrame
 from pandas import NaT, Timestamp, to_datetime
-from pycountry import countries
 from tqdm import tqdm
 
 from .config import (
     ADMIN_LEVEL_MAX,
     WGS84,
     apostrophe_chars,
+    countries,
     invisible_chars,
+    iso3_list,
     level_1a_fixes,
 )
 from .utils import get_adm0_name, get_epsg_ease, read_parquet, to_parquet
@@ -25,7 +26,7 @@ def dissolve_and_save(gdf: GeoDataFrame, iso3: str, admin_levels: int):
                 if match(rf"^ADM{level}_[A-Z][A-Z]$", column)
             ]
             columns += [f"ADM{level}_PCODE"]
-        columns += ["date", "validOn", "validTo", "AREA_SQKM", "geometry"]
+        columns += ["date", "validOn", "validTo", "AREA_SQKM", gdf.active_geometry_name]
         gdf = gdf.dissolve(f"ADM{admin_level}_PCODE", as_index=False)
         _, min_y, _, max_y = gdf.geometry.total_bounds
         epsg_ease = get_epsg_ease(min_y, max_y)
@@ -109,8 +110,10 @@ def main() -> None:
     pbar = tqdm(countries)
     for country in pbar:
         iso3 = country.alpha_3
-        iso2 = country.alpha_2
         pbar.set_postfix_str(iso3)
+        if len(iso3_list) and country.alpha_3 not in iso3_list:
+            continue
+        iso2 = country.alpha_2
         admin_level = ADMIN_LEVEL_MAX
         country_config = level_1a_fixes.get(iso3, {})
         sources = ["fix", "hdx", "itos"]

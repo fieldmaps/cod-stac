@@ -2,9 +2,8 @@ from typing import Literal
 
 import geopandas as gpd
 from geopandas import GeoDataFrame
-from pandas import read_csv
 
-from .config import inputs, m49, processing_levels, unterm
+from .config import inputs, m49, processing_levels
 
 
 def read_parquet(
@@ -86,23 +85,8 @@ def get_adm0_name(iso3: str, lang: str):
         iso3: ISO-3 country code.
 
     Returns:
-        UNTERM or M49 name.
+        M49 name.
     """
-    if iso3 in unterm:
-        return unterm[iso3][f"{lang}_short"]
     if iso3 in m49:
         return m49[iso3][f"{lang}_short"]
     return ""
-
-
-def get_metadata() -> list[dict]:
-    """Load the metadata table and create a list with every COD admin layer to download.
-
-    For example, returns entries for AFG_ADM0, AFG_ADM1, AFG_ADM2, AGO_ADM0, etc.
-
-    Returns:
-        List containing the following information to download each COD: ISO-3 code,
-        admin level, URL and layer index of the COD on the ArcGIS server.
-    """
-    metadata = read_csv(inputs / "metadata.csv")
-    return metadata.to_dict("records")

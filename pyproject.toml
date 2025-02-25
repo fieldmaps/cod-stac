@@ -13,10 +13,7 @@ dependencies = [
     "pyarrow",
     "pycountry",
     "pystac",
-    # "stac-fastapi-api",
-    # "stac-fastapi-extensions",
-    # "stac-fastapi-pgstac",
-    # "stac-fastapi-types",
+    "python-dotenv",
     "stactools[validate]",
     "tqdm",
 ]
@@ -30,8 +27,9 @@ export = "uv sync -q && uv export -q -o requirements.txt --no-dev --no-hashes"
 pipeline = "python -m app"
 ruff = "ruff format && ruff check && ruff format"
 make_stac = "rm -rf stac-remote && stac copy --catalog-type ABSOLUTE_PUBLISHED --publish-location ${CATALOG_URL} stac/catalog.json stac-remote"
-upload_assets = "rclone sync --exclude='.*' --progress --s3-no-check-bucket --s3-chunk-size=100M --transfers=10 outputs r2://fieldmaps-data-cod/assets"
 upload_stac = "rclone sync --exclude='.*' --progress --s3-no-check-bucket --s3-chunk-size=100M --transfers=10 stac-remote r2://fieldmaps-data-cod/stac"
+upload_assets = "rclone sync --exclude='.*' --progress --s3-no-check-bucket --s3-chunk-size=100M --transfers=10 outputs r2://fieldmaps-data-cod/assets && rclone purge r2://fieldmaps-data-cod/cache"
+upload = "uv run task make_stac && uv run task upload_stac && uv run task upload_assets"
 
 [tool.ruff]
 fix = true

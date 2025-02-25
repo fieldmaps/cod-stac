@@ -4,7 +4,7 @@ from geopandas import read_parquet
 from plotly.graph_objects import Choropleth, Figure
 from tqdm import tqdm
 
-from .config import outputs
+from .config import iso3_list, outputs
 
 EPSG_WGS84 = 4326
 PLOTLY_SIMPLIFY = 0.000_1
@@ -50,6 +50,9 @@ def main() -> None:
     pbar = tqdm(files)
     for file in pbar:
         pbar.set_postfix_str(file.stem)
+        iso3 = file.stem.split("_")[0].upper()
+        if len(iso3_list) and iso3 not in iso3_list:
+            continue
         to_webp(file)
 
 

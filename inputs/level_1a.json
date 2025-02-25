@@ -343,12 +343,9 @@
     "update": "2023-12-15"
   },
   "TCD": {
-    "update": "2017-06-15",
-    "replace": {
-      "ADM2_FR": {
-        "Bahr-Köh": "Bahr-Kôh"
-      }
-    }
+    "date": "2023-01-01",
+    "update": "2025-02-13",
+    "title": ["ADM1_FR"]
   },
   "TLS": {
     "rename": {
@@ -420,6 +417,12 @@
         "г.Чиpчик": "г.Чирчик",
         "г.Маpгилан": "г.Маргилан"
       }
+    }
+  },
+  "VEN": {
+    "drop": ["ADM0_EN"],
+    "duplicate": {
+      "ADM0_EN": "ADM0_ES"
     }
   },
   "VNM": {

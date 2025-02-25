@@ -6,14 +6,12 @@ from shutil import rmtree
 import httpx
 import pystac
 from geopandas import GeoDataFrame, GeoSeries, read_parquet
-from numpy import nan
 from pandas import Timestamp
-from pycountry import countries, languages
+from pycountry import languages
 from shapely.geometry import box
 from tqdm import tqdm
 
-from .config import processing_levels, stac
-from .utils import get_metadata
+from .config import countries, processing_levels, stac
 
 EPSG_WGS84 = 4326
 
@@ -54,10 +52,15 @@ def get_langs(gdf: GeoDataFrame, admin_level: int | None = None) -> list[dict]:
         p = re.compile(r"^ADM\d_\w{2}$")
     else:
         p = re.compile(rf"^ADM{admin_level}_\w{{2}}$")
-    langs = [x.split("_")[1].lower() for x in columns if p.search(x)]
-    langs = list(dict.fromkeys(langs))
+    langs1 = [x.split("_")[1].lower() for x in columns if p.search(x)]
+    langs1 = list(dict.fromkeys(langs1))
+    langs2 = [
+        gdf[key].iloc[0]
+        for key in ["lang", "lang1", "lang2"]
+        if key in gdf and gdf[key].iloc[0] is not None
+    ]
     result = []
-    for lang in langs:
+    for lang in [*langs1, *langs2]:
         name = None
         if languages.get(alpha_2=lang):
             name = languages.get(alpha_2=lang).name
@@ -69,7 +72,7 @@ def add_assets(
     item: pystac.Item,
     iso3: str,
     adm_level: int,
-    processing_level: int,
+    processing_level: str,
 ) -> pystac.Item:
     item.add_asset(
         key="parquet",
@@ -114,20 +117,44 @@ def add_assets(
     return item
 
 
+def add_assets_lines(
+    item: pystac.Item,
+    iso3: str,
+    processing_level: str,
+) -> pystac.Item:
+    item.add_asset(
+        key="parquet",
+        asset=pystac.Asset(
+            href=f"{S3_ASSETS_URL}/level-{processing_level}-lines/{iso3}.parquet",
+            media_type="application/vnd.apache.parquet",
+            roles=["data"],
+        ),
+    )
+    for key, media in formats:
+        item.add_asset(
+            key=key,
+            asset=pystac.Asset(
+                href=f"{API_URL}/features/{processing_level}-lines/{iso3}?f={key}",
+                media_type=media,
+                roles=["data"],
+            ),
+        )
+    return item
+
+
 def get_collection(processing_level: str, description: str) -> pystac.Collection:
     """Main function, runs all modules in sequence."""
-    metadata_all = get_metadata()
     collections = []
     geometries_all = []
     intervals_all = []
-    pbar = tqdm(metadata_all)
-    for metadata in pbar:
-        iso3 = metadata["iso3"]
+    pbar = tqdm(countries)
+    for country in pbar:
+        iso3 = country.alpha_3
         pbar.set_postfix_str(iso3)
         r = httpx.get(
             f"https://data.humdata.org/api/3/action/package_show?id=cod-ab-{iso3.lower()}",
         )
-        hdx = r.json()["result"]
+        hdx = r.json().get("result", {})
         files = sorted(
             processing_levels[processing_level].glob(f"{iso3.lower()}_adm*.parquet"),
         )
@@ -137,11 +164,12 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
         geometries = []
         intervals = []
         proj_codes = set()
+        date_start = None
+        date_end = None
         for file in files:
             adm_level = int(file.stem.split("_adm")[1])
             gdf = read_parquet(file)
             # dissolve = gdf.dissolve()
-            country = countries.get(alpha_3=iso3)
             item = pystac.Item(
                 id=file.stem,
                 # geometry=dissolve.convex_hull.iloc[0].__geo_interface__,
@@ -151,8 +179,14 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
                 ).__geo_interface__,
                 bbox=gdf.geometry.to_crs(EPSG_WGS84).total_bounds.tolist(),
                 start_datetime=get_date(gdf, "date"),
-                end_datetime=get_date(gdf, "validOn"),
-                datetime=get_date(gdf, "validOn"),
+                end_datetime=get_date(
+                    gdf,
+                    "validOn" if processing_level < "1b" else "validon",
+                ),
+                datetime=get_date(
+                    gdf,
+                    "validOn" if processing_level < "1b" else "validon",
+                ),
                 properties={
                     "admin:level": adm_level,
                     "admin:count": len(gdf.index),
@@ -161,21 +195,6 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
                 },
             )
             item = add_assets(item, iso3.lower(), adm_level, processing_level)
-            if (
-                metadata["itos_url"] is not nan
-                and metadata[f"itos_index_{adm_level}"] >= 0
-            ):
-                item.add_link(
-                    pystac.Link(
-                        rel=pystac.RelType.VIA,
-                        target=(
-                            f"{metadata['itos_url']}/"
-                            f"{int(metadata[f'itos_index_{adm_level}'])}/query"
-                            "?f=json&where=1=1&outFields=*&orderByFields=OBJECTID"
-                        ),
-                        title="ITOS ArcGIS Feature Server ESRI JSON",
-                    ),
-                )
             items.append(item)
             # geometries.append(dissolve.geometry.envelope.iloc[0])
             # geometries_all.append(dissolve.geometry.envelope.iloc[0])
@@ -183,13 +202,42 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
             geometries.append(gdf.geometry.envelope.iloc[0])
             geometries_all.append(gdf.geometry.envelope.iloc[0])
             intervals.append(get_date(gdf, "date"))
-            intervals.append(get_date(gdf, "validOn"))
+            intervals.append(
+                get_date(
+                    gdf,
+                    "validOn" if processing_level < "1b" else "validon",
+                ),
+            )
             intervals_all.append(item.datetime)
+            date_start = get_date(gdf, "date")
+            date_end = get_date(
+                gdf,
+                "validOn" if processing_level < "1b" else "validon",
+            )
+        if processing_level >= "2":
+            file = processing_levels[f"{processing_level}l"] / f"{iso3.lower()}.parquet"
+            if file.exists():
+                gdf = read_parquet(file)
+                item = pystac.Item(
+                    id=f"{file.stem}_lines",
+                    geometry=box(
+                        *gdf.geometry.to_crs(EPSG_WGS84).total_bounds,
+                    ).__geo_interface__,
+                    bbox=gdf.geometry.to_crs(EPSG_WGS84).total_bounds.tolist(),
+                    start_datetime=date_start,
+                    end_datetime=date_end,
+                    datetime=date_end,
+                    properties={
+                        "proj:code": f"EPSG:{gdf.geometry.crs.to_epsg() or EPSG_WGS84}",
+                    },
+                )
+                item = add_assets_lines(item, iso3.lower(), processing_level)
+                items.append(item)
         collection = pystac.Collection(
             id=f"cod-ab-l{processing_level}-{iso3.lower()}",
-            title=metadata["name"],
+            title=country.name,
             description=(
-                f"COD-AB at Level-{processing_level} processing for {metadata['name']}."
+                f"COD-AB at Level-{processing_level} processing for {country.name}."
             ),
             extent=pystac.Extent(
                 pystac.SpatialExtent(GeoSeries(geometries).total_bounds.tolist()),
@@ -202,10 +250,10 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
                     "country:alpha_3": iso3,
                     "country:alpha_2": country.alpha_2,
                     "country:numeric": country.numeric,
-                    "hdx:notes": hdx["notes"],
-                    "hdx:dataset_source": hdx["dataset_source"],
-                    "hdx:organization": hdx["organization"]["name"],
-                    "hdx:methodology": hdx["methodology"],
+                    "hdx:notes": hdx.get("notes"),
+                    "hdx:dataset_source": hdx.get("dataset_source"),
+                    "hdx:organization": hdx.get("organization", {}).get("name"),
+                    "hdx:methodology": hdx.get("methodology"),
                     "hdx:methodology_other": hdx.get("methodology_other"),
                     "hdx:caveats": hdx.get("caveats"),
                 },
@@ -220,19 +268,12 @@ def get_collection(processing_level: str, description: str) -> pystac.Collection
                 media_type="image/webp",
             ),
         )
-        collection.add_link(
-            pystac.Link(
-                rel=pystac.RelType.VIA,
-                target=metadata["hdx_url"],
-                title="HDX Dataset Page",
-            ),
-        )
-        if metadata["itos_url"] is not nan:
+        if hdx:
             collection.add_link(
                 pystac.Link(
                     rel=pystac.RelType.VIA,
-                    target=metadata["itos_url"],
-                    title="ITOS ArcGIS Feature Server",
+                    target=f"https://data.humdata.org/dataset/cod-ab-{iso3.lower()}",
+                    title="HDX Dataset Page",
                 ),
             )
         collection.add_items(items)
@@ -264,6 +305,9 @@ def main():
             ", or schema issues.",
         ),
         ("1a", "Geometry, topology, character encoding and schema cleaning applied."),
+        ("1b", "Schema changed so attributes can be merged into a global dataset."),
+        ("2", "Geometry extended outward for pre-edge-matching."),
+        ("3", "Geometry edge-matched to UN Geo Hub International Boundaries."),
     ]:
         collection = get_collection(processing_level, description)
         catalog.add_child(collection)

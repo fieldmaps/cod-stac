@@ -4,5 +4,7 @@ __pycache__
 .venv
 *.gpkg
 *.parquet
+gdb
 stac
 stac-remote
+extended

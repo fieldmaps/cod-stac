@@ -1,29 +1,20 @@
 from pathlib import Path
 from subprocess import DEVNULL, run
 
+from geopandas import read_parquet
 from tqdm import tqdm
 
-from .config import outputs
+from .config import iso3_list, outputs
 
 
 def to_geojsonl(file: Path) -> None:
-    """Save file as GeoJSONSeq.
-
-    Args:
-        file: GeoParquet file.
-    """
-    run(
-        ["ogr2ogr", "-overwrite", file.with_suffix(".geojsonl"), file],
-        check=False,
-    )
+    """Save file as GeoJSONSeq."""
+    gdf = read_parquet(file)
+    gdf.to_file(file.with_suffix(".geojsonl"))
 
 
 def to_pmtiles(file: Path) -> None:
-    """Save file as PMTiles.
-
-    Args:
-        file: GeoParquet file.
-    """
+    """Save file as PMTiles."""
     run(
         [
             "tippecanoe",
@@ -47,6 +38,9 @@ def main() -> None:
     pbar = tqdm(files)
     for file in pbar:
         pbar.set_postfix_str(file.stem)
+        iso3 = file.stem.split("_")[0].upper()
+        if len(iso3_list) and iso3 not in iso3_list:
+            continue
         to_geojsonl(file)
         to_pmtiles(file)
         file.with_suffix(".geojsonl").unlink()
